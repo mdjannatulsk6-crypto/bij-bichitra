@@ -975,60 +975,123 @@ src="https://www.facebook.com/tr?id=1722536878802474&ev=PageView&noscript=1"
     });
   });
 
-  // ---- Order submit ----
+  // ---- Order submit: duplicate-safe transaction ----
   var form=document.getElementById('orderForm');
-  form.addEventListener('submit',function(e){
-    e.preventDefault();
-    var valid=true;
-    var name=document.getElementById('name'), phone=document.getElementById('phone'), address=document.getElementById('address');
-    function setError(id,isError){var wrap=document.getElementById(id);if(isError)wrap.classList.add('error');else wrap.classList.remove('error');}
-    if(name.value.trim().length<2){setError('f-name',true);valid=false}else setError('f-name',false);
-    var phoneDigits=phone.value.trim();
-    if(!/^01[0-9]{9}$/.test(phoneDigits)){setError('f-phone',true);valid=false}else setError('f-phone',false);
-    if(address.value.trim().length<5){setError('f-address',true);valid=false}else setError('f-address',false);
-    if(!valid){var firstError=document.querySelector('.field.error');if(firstError)firstError.scrollIntoView({behavior:'smooth',block:'center'});return;}
+  var submitBtn=form ? form.querySelector('.submit-btn') : null;
+  var orderLocked=false;
+  var orderCompleted=false;
+  var defaultSubmitText=submitBtn ? submitBtn.textContent : '📦 অর্ডার কনফার্ম করুন';
 
-    var pkg=getSelectedPkg();
-    var productTotal=(Number(pkg.price)||0);
-    var delivery=deliveryChargeForDistrict();
-    var grandTotal=productTotal+delivery;
-    var totalBn=bnNum(grandTotal)+' টাকা';
-    var msg='🌱 নতুন অর্ডার — বীজ বিচিত্রা\n'+
-      'নামঃ '+name.value.trim()+'\n'+
-      'মোবাইলঃ '+phoneDigits+'\n'+
-      'ঠিকানাঃ '+address.value.trim()+'\n'+
-      'প্যাকেজঃ '+pkg.name+'\n'+
-      'প্যাকেজ সংখ্যা: '+qty+'\n'+
-      'প্যাকেজ মূল্যঃ '+bnNum(productTotal)+' টাকা\n'+
-      'ডেলিভারি চার্জঃ '+(delivery?bnNum(delivery)+' টাকা':'ফ্রি')+'\n'+
-      'পার্সেলের ওজনঃ '+(0.03*qty).toFixed(2)+' kg\n'+
-      'সর্বমোট মূল্যঃ '+totalBn;
-
-    try{
-      var savedOrders=JSON.parse(localStorage.getItem('bb_orders')||'[]');
-      savedOrders.push({name:name.value.trim(),phone:phoneDigits,address:address.value.trim(),district:'',upazila:'',packageName:pkg.name,qty:qty,productTotal:bnNum(productTotal)+' টাকা',delivery:delivery?bnNum(delivery)+' টাকা':'ফ্রি',total:totalBn,time:new Date().toLocaleString('bn-BD')});
-      localStorage.setItem('bb_orders',JSON.stringify(savedOrders));
-    }catch(e){}
-
-    try{
-      if(siteSettings.pixelEnabled && typeof fbq==='function') fbq('track','Purchase',{value:grandTotal,currency:'BDT',content_name:pkg.name,content_type:'product',num_items:qty});
-    }catch(e){}
-
-    if(siteSettings.telegramEnabled && siteSettings.telegramBotToken && siteSettings.telegramChatId){
-      try{
-        fetch('https://api.telegram.org/bot'+siteSettings.telegramBotToken+'/sendMessage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:siteSettings.telegramChatId,text:msg})})
-          .then(function(res){return res.json();}).then(function(data){if(!data.ok)console.error('Telegram পাঠাতে ব্যর্থ: '+data.description);}).catch(function(err){console.error('Telegram request failed',err);});
-      }catch(e){}
+  function unlockForNewOrder(){
+    // সফল অর্ডারের পর কাস্টমার নতুন তথ্য লেখা/প্যাকেজ বদলালে আবার অর্ডার করতে পারবেন।
+    if(orderCompleted){
+      orderLocked=false;
+      orderCompleted=false;
+      if(submitBtn){
+        submitBtn.disabled=false;
+        submitBtn.textContent=defaultSubmitText;
+      }
     }
+  }
 
-    var successMsg=document.getElementById('successMsg');
-    successMsg.classList.add('show');
-    successMsg.scrollIntoView({behavior:'smooth',block:'center'});
-    var orderConfirmOverlay=document.getElementById('orderConfirmOverlay');
-    if(orderConfirmOverlay)orderConfirmOverlay.classList.add('show');
-    form.reset();
-    qty=1;selectedPackage=0;renderPackageChoices();updateTotal();
-  });
+  if(form){
+    ['name','phone','address'].forEach(function(id){
+      var field=document.getElementById(id);
+      if(field) field.addEventListener('input',unlockForNewOrder);
+    });
+    if(packageChoice){ packageChoice.addEventListener('change',unlockForNewOrder); }
+
+    form.addEventListener('submit',function(e){
+      e.preventDefault();
+
+      // Double-click / repeated submit event একই অর্ডারকে দ্বিতীয়বার process করবে না।
+      if(orderLocked) return;
+
+      var valid=true;
+      var name=document.getElementById('name'), phone=document.getElementById('phone'), address=document.getElementById('address');
+      function setError(id,isError){var wrap=document.getElementById(id);if(isError)wrap.classList.add('error');else wrap.classList.remove('error');}
+      if(name.value.trim().length<2){setError('f-name',true);valid=false}else setError('f-name',false);
+      var phoneDigits=phone.value.trim();
+      if(!/^01[0-9]{9}$/.test(phoneDigits)){setError('f-phone',true);valid=false}else setError('f-phone',false);
+      if(address.value.trim().length<5){setError('f-address',true);valid=false}else setError('f-address',false);
+      if(!valid){var firstError=document.querySelector('.field.error');if(firstError)firstError.scrollIntoView({behavior:'smooth',block:'center'});return;}
+
+      // Validation সফল হওয়ার পরই lock করা হচ্ছে।
+      orderLocked=true;
+      if(submitBtn){
+        submitBtn.disabled=true;
+        submitBtn.textContent='⏳ অর্ডার পাঠানো হচ্ছে...';
+      }
+
+      // এই ID-টাই local order, Telegram flow এবং Meta Purchase-এর একই transaction-এর পরিচয়।
+      var orderId='BB-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();
+      var pkg=getSelectedPkg();
+      var productTotal=(Number(pkg.price)||0);
+      var delivery=deliveryChargeForDistrict();
+      var grandTotal=productTotal+delivery;
+      var totalBn=bnNum(grandTotal)+' টাকা';
+      var customerName=name.value.trim();
+      var customerAddress=address.value.trim();
+      var msg='🌱 নতুন অর্ডার — বীজ বিচিত্রা\n'+
+        'নামঃ '+customerName+'\n'+
+        'মোবাইলঃ '+phoneDigits+'\n'+
+        'ঠিকানাঃ '+customerAddress+'\n'+
+        'প্যাকেজঃ '+pkg.name+'\n'+
+        'প্যাকেজ সংখ্যা: '+qty+'\n'+
+        'প্যাকেজ মূল্যঃ '+bnNum(productTotal)+' টাকা\n'+
+        'ডেলিভারি চার্জঃ '+(delivery?bnNum(delivery)+' টাকা':'ফ্রি')+'\n'+
+        'পার্সেলের ওজনঃ '+(0.03*qty).toFixed(2)+' kg\n'+
+        'সর্বমোট মূল্যঃ '+totalBn;
+
+      // Admin order record — একই transaction-এর orderId সংরক্ষণ করা হচ্ছে।
+      try{
+        var savedOrders=JSON.parse(localStorage.getItem('bb_orders')||'[]');
+        savedOrders.push({orderId:orderId,name:customerName,phone:phoneDigits,address:customerAddress,district:'',upazila:'',packageName:pkg.name,qty:qty,productTotal:bnNum(productTotal)+' টাকা',delivery:delivery?bnNum(delivery)+' টাকা':'ফ্রি',total:totalBn,time:new Date().toLocaleString('bn-BD')});
+        localStorage.setItem('bb_orders',JSON.stringify(savedOrders));
+      }catch(e){console.error('Order local save failed',e);}
+
+      // Meta Purchase — একবারই fire হবে এবং unique eventID ব্যবহার করবে।
+      try{
+        if(siteSettings.pixelEnabled && typeof fbq==='function'){
+          fbq('track','Purchase',{
+            value:grandTotal,
+            currency:'BDT',
+            content_name:pkg.name,
+            content_type:'product',
+            num_items:qty
+          },{eventID:orderId});
+        }
+      }catch(e){console.error('Meta Purchase failed',e);}
+
+      // Telegram — submit handler-এর এই একটিমাত্র execution থেকেই request যাবে।
+      if(siteSettings.telegramEnabled && siteSettings.telegramBotToken && siteSettings.telegramChatId){
+        try{
+          fetch('https://api.telegram.org/bot'+siteSettings.telegramBotToken+'/sendMessage',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({chat_id:siteSettings.telegramChatId,text:msg})
+          }).then(function(res){return res.json();}).then(function(data){
+            if(!data.ok) console.error('Telegram পাঠাতে ব্যর্থ: '+data.description);
+          }).catch(function(err){console.error('Telegram request failed',err);});
+        }catch(e){console.error('Telegram request failed',e);}
+      }
+
+      var successMsg=document.getElementById('successMsg');
+      successMsg.classList.add('show');
+      successMsg.scrollIntoView({behavior:'smooth',block:'center'});
+      var orderConfirmOverlay=document.getElementById('orderConfirmOverlay');
+      if(orderConfirmOverlay)orderConfirmOverlay.classList.add('show');
+      form.reset();
+      qty=1;selectedPackage=0;renderPackageChoices();updateTotal();
+
+      // Lock থাকবে যতক্ষণ না কাস্টমার নতুন order-এর জন্য কিছু পরিবর্তন করেন।
+      orderCompleted=true;
+      if(submitBtn){
+        submitBtn.disabled=true;
+        submitBtn.textContent='✅ অর্ডার গ্রহণ করা হয়েছে';
+      }
+    });
+  }
 
   // Confirmation overlay
   var orderConfirmOverlayEl=document.getElementById('orderConfirmOverlay');
