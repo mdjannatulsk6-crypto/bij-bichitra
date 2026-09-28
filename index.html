@@ -1010,6 +1010,10 @@ src="https://www.facebook.com/tr?id=1722536878802474&ev=PageView&noscript=1"
       localStorage.setItem('bb_orders',JSON.stringify(savedOrders));
     }catch(e){}
 
+    try{
+      if(siteSettings.pixelEnabled && typeof fbq==='function') fbq('track','Purchase',{value:grandTotal,currency:'BDT',content_name:pkg.name,content_type:'product',num_items:qty});
+    }catch(e){}
+
     if(siteSettings.telegramEnabled && siteSettings.telegramBotToken && siteSettings.telegramChatId){
       try{
         fetch('https://api.telegram.org/bot'+siteSettings.telegramBotToken+'/sendMessage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:siteSettings.telegramChatId,text:msg})})
