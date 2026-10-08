@@ -560,7 +560,7 @@ src="https://www.facebook.com/tr?id=1722536878802474&ev=PageView&noscript=1"
       <div class="chip">✅ অঙ্কুরোদগম ৯৭%</div>
       <div class="chip">📄 চাষ পদ্ধতির গাইড PDF</div>
     </div>
-    <a href="#order" class="cta-btn">এখনই অর্ডার করুন — Order Now</a>
+    <a href="#order" class="cta-btn" id="topOrderBtn">এখনই অর্ডার করুন — Order Now</a>
     <div class="cta-sub">স্টক সীমিত, আজই বুক করে রাখুন</div>
     <a class="guide-btn" href="https://drive.google.com/uc?export=download&id=1Qvl7nSIfqGN46nrtcD8aF-yOO2MP-4_0" download>
       📥 গাইড লাইনের অনলাইন কপি ডাউনলোড করুন
@@ -966,6 +966,16 @@ src="https://www.facebook.com/tr?id=1722536878802474&ev=PageView&noscript=1"
   function applyFormMode(){
     siteSettings.formDropdowns=false;
     updateTotal();
+  }
+
+  // ---- উপরের Order Now বাটন: অর্ডার ফর্মে স্মুথ স্ক্রল ----
+  var topOrderBtn = document.getElementById('topOrderBtn');
+  if(topOrderBtn){
+    topOrderBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      var orderSection = document.getElementById('order');
+      if(orderSection){ orderSection.scrollIntoView({behavior:'smooth', block:'start'}); }
+    });
   }
 
   // ---- Meta Pixel: InitiateCheckout ----
